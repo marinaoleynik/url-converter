@@ -1,7 +1,7 @@
 package it.discovery.marina;
 
 import java.io.*;
-import java.time.*;
+import java.net.URL;
 import java.util.*;
 import java.util.Map.Entry;
 
@@ -13,13 +13,8 @@ public class UrlConverter implements Serializable {
     private static final String ERROR_DOMAIN_NOT_SUPPORTED = "This domain isn't supported";
     private static final String ERROR_WRONG_URL = "Wrong URL";
 
-    //have to be changed for regexp
-    private static final int MIN_URL_LENGTH = 6;
-    //have to be changed for regexp
-    private static final String MIN_URL_FORMAT = "://";
-
-
     private HashMap<String, String> mapOfUrls = new HashMap<>();
+    private int keyOffset = 0;
 
     public static void main(String[] args)
     {
@@ -41,12 +36,10 @@ public class UrlConverter implements Serializable {
         System.out.println(newUrl3);
         String newUrl4 = urlConverter.convertUrl(currentUrl4);
         System.out.println(newUrl4);
-        urlConverter.convertUrl(null);
-        urlConverter.convertUrl("");
+        System.out.println(urlConverter.convertUrl(null));
+        System.out.println(urlConverter.convertUrl(""));
 
         urlConverter.printMap();
-
-
 
         System.out.println(newUrl+" "+ urlConverter.getFullUrl(newUrl));
         System.out.println(newUrl2+" "+ urlConverter.getFullUrl(newUrl2));
@@ -57,76 +50,74 @@ public class UrlConverter implements Serializable {
         String fakeUrl2 = "https://gen.ly/fsdf";
         System.out.println(fakeUrl2+" "+ urlConverter.getFullUrl(fakeUrl2));
 
+        System.out.println("null: "+ urlConverter.getFullUrl(null));
+
+        /*for(int i=0; i< 1000; i++)
+        {
+            System.out.println(urlConverter.convertUrl("http://validurl.com/"+Integer.toString(i)));
+        }*/
+
+    }
+   
+    public String convertUrl(String longUrl)
+    {
+        if(!validateUrl(longUrl))
+        {
+            return ERROR_WRONG_URL;
+        }
+
+        loadStorage();
+
+        String keyFromStorage = checkUrlAlreadyConverted(longUrl);
+        if(keyFromStorage!= null && keyFromStorage.length() > 0){
+            return toShortUrl(keyFromStorage);
+        }
+       
+        return toShortUrl(addToStorage(longUrl));
     }
 
     public String getFullUrl(String shortUrl)
     {
-        boolean isOurDomain = checkDomain(shortUrl);
-        if(isOurDomain == false)
+        if(!isDomainSupported(shortUrl))
         {
             return ERROR_DOMAIN_NOT_SUPPORTED;
         }
 
-        loadUrlsFromFile();
-        String key = getKeyFromUrl(shortUrl);
-        return mapOfUrls.getOrDefault(key, ERROR_URL_NOT_FOUND);
+        loadStorage();
+
+        return mapOfUrls.getOrDefault(extractKey(shortUrl), ERROR_URL_NOT_FOUND);
     }
 
-    private boolean checkDomain(String shortUrl)
+    private boolean isDomainSupported(String shortUrl)
     {
-        return shortUrl.startsWith(PROTOCOL_AND_DOMAIN);
+        return getOrDefault(shortUrl).startsWith(PROTOCOL_AND_DOMAIN);
     }
 
-    private String getKeyFromUrl(String shortUrl)
+    private String extractKey(String shortUrl)
     {
-        int index = shortUrl.lastIndexOf('/');
-        if(index == -1) return shortUrl;
-
-        return shortUrl.substring(index+1);
-
+        String url = getOrDefault(shortUrl);
+        return url.substring(url.lastIndexOf('/') + 1);
     }
 
     private void printMap()
     {
         System.out.println(mapOfUrls);
     }
-    private static String generateNewKey()
+
+    private static String generateNewKey(int startPoint)
     {
-        Random rand = new Random();
-        return Long.toString(Instant.now().getEpochSecond(), Character.MAX_RADIX)
-                + Integer.toString(rand.nextInt(Character.MAX_RADIX), Character.MAX_RADIX);
-    }
-    public String convertUrl(String longUrl)
-    {
-        boolean isUrl = validateUrl(longUrl);
-        if(isUrl == false)
-        {
-            return ERROR_WRONG_URL;
-        }
-
-        loadUrlsFromFile();
-
-        String oldKey = checkUrlAlreadyAtMap(longUrl);
-        if(oldKey.length()> 0){
-            return makeNewUrlFromKey(oldKey);
-        }
-
-
-        String newKey = addUrlToMap(longUrl);
-        return makeNewUrlFromKey(newKey);
+        int firstValidKey = Integer.valueOf("a00000", Character.MAX_RADIX );
+        return Integer.toString(firstValidKey + startPoint, Character.MAX_RADIX);
     }
 
+   
     private boolean validateUrl(String longUrl)
     {
-        if(longUrl == null) {
-            return false;
-        }
-
-        if(longUrl.length() < MIN_URL_LENGTH) //have to be changed for regexp using
+        try
         {
-            return false;
-        }
-        if(longUrl.contains(MIN_URL_FORMAT) == false) //have to be changed for regexp using
+            URL url = new URL(longUrl);
+            url.toURI();
+        } catch (Exception exception)
         {
             return false;
         }
@@ -134,66 +125,71 @@ public class UrlConverter implements Serializable {
         return true;
     }
 
-    private String makeNewUrlFromKey(String newKey)
+    private String toShortUrl(String newKey)
     {
         return PROTOCOL_AND_DOMAIN + newKey;
     }
 
-    private String checkUrlAlreadyAtMap(String longUrl)
+    private String checkUrlAlreadyConverted(String longUrl)
     {
-        boolean exists = mapOfUrls.containsValue(longUrl);
-        if(exists)
+        if(!mapOfUrls.containsValue(longUrl)) {
+            return "";
+        }
+
+        Optional<Entry<String, String>> entry = mapOfUrls.entrySet().stream()
+                                                .filter((n)->n.getValue().equals(longUrl)).findAny();
+        if(entry.isPresent())
         {
-            Set<Entry<String, String>> entries = mapOfUrls.entrySet();
-            for(Entry<String, String> entry : entries)
-            {
-                if(entry.getValue().equals(longUrl))
-                {
-                    return entry.getKey();
-                }
-            }
+            return entry.get().getKey();
         }
 
         return "";
 
     }
 
-    private String addUrlToMap(String longUrl)
+    private String addToStorage(String longUrl)
     {
-        String newKey = generateNewKey();
+        String newKey = generateNewKey(keyOffset++);
         boolean exists = mapOfUrls.containsKey(newKey);
         if(exists)
         {
-            System.out.println("logging: recursion detected");
-            return addUrlToMap(longUrl);
+            System.out.println("logging: key already exists, recursion");
+            return addToStorage(longUrl);
         }
         else
         {
             mapOfUrls.put(newKey, longUrl);
-            saveUrlsToFile();
+            saveStorage();
             return newKey;
         }
     }
 
-    private void saveUrlsToFile()
+    private void saveStorage()
     {
         try {
             ObjectOutputStream out = new ObjectOutputStream( new FileOutputStream(URLS_FILE_NAME));
+            out.writeInt(keyOffset);
             out.writeObject(mapOfUrls);
             out.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
-    private void loadUrlsFromFile()
+    private void loadStorage()
     {
         try {
             ObjectInputStream in = new ObjectInputStream(new FileInputStream(URLS_FILE_NAME));
+            keyOffset = in.readInt();
             mapOfUrls = (HashMap<String, String>) in.readObject();
         } catch (IOException e) {
             e.printStackTrace();
         } catch (ClassNotFoundException e) {
             e.printStackTrace();
         }
+    }
+
+    private String getOrDefault(String string)
+    {
+        return Optional.ofNullable(string).orElse("");
     }
 }
